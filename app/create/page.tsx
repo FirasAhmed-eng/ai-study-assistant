@@ -36,37 +36,26 @@ export default function Create() {
     // 1. Save the raw text to our global state
     setSessionText(title, content);
 
-    // 2. Mocking the AI API response for Day 9
-    setTimeout(() => {
-      // Create fake data to populate our dashboard
-      setGeneratedMaterials(
-        "This is a mock summary of the provided text. The AI successfully processed the material and extracted the core concepts.",
-        [
-          {
-            front: "What is the powerhouse of the cell?",
-            back: "Mitochondria",
-          },
-          { front: "What molecule stores chemical energy?", back: "ATP" },
-        ],
-        [
-          {
-            question: "How is mitochondrial DNA inherited?",
-            options: [
-              "From the father",
-              "From the mother",
-              "Equally from both",
-              "Randomly",
-            ],
-            answer: "From the mother",
-          },
-        ],
-      );
-
-      setIsGenerating(false);
-
-      // 3. Route the user to the active session page
+    try {
+      // call the fastapi endpoint
+      const response = await fetch("http://localhost:8000/api/ai/summarize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text: content }),
+      });
+      if (!response.ok) throw new Error("Failed to generate summary");
+      const data = await response.json();
+      // Update Zustand store with the real AI summary
+      setGeneratedMaterials(data.summary, [], []);
       router.push("/session/current");
-    }, 2500);
+    } catch (error) {
+      console.error(error);
+      alert("Something went wrong connecting to the AI. ");
+    } finally {
+      setIsGenerating(false);
+    }
   };
   const loadExampleContent = () => {
     setTitle("Biology: The Mitochondria");
