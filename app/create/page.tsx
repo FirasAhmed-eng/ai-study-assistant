@@ -6,6 +6,7 @@ import { Loader2, Sparkles, Wand2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useStudyStore } from "@/store/useStudyStore";
 export default function Create() {
+  const saveSessionToDb = useStudyStore((state) => state.saveSessionToDb);
   const router = useRouter();
   // Pull in  Zustand actions
   const setSessionText = useStudyStore((state) => state.setSessionText);
@@ -35,24 +36,109 @@ export default function Create() {
 
     // 1. Save the raw text to our global state
     setSessionText(title, content);
-
+    // Execute both AI generation requests concurrently
     try {
-      // call the fastapi endpoint
-      const response = await fetch("http://localhost:8000/api/ai/summarize", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ text: content }),
-      });
-      if (!response.ok) throw new Error("Failed to generate summary");
-      const data = await response.json();
-      // Update Zustand store with the real AI summary
-      setGeneratedMaterials(data.summary, [], []);
-      router.push("/session/current");
+      // const response = await fetch("http://localhost:8000/api/ai/summarize", {
+      //   method: "POST",
+      //   headers: { "Content-Type": "application/json" },
+      //   body: JSON.stringify({ text: content }),
+      // });
+      const [summaryRes, flashcardsRes, quizRes] = await Promise.all([
+        fetch("http://localhost:8000/api/ai/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: content }),
+        }),
+        fetch("http://localhost:8000/api/ai/flashcards", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: content }),
+        }),
+        fetch("http://localhost:8000/api/ai/quiz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: content }),
+        }),
+      ]);
+      if (!summaryRes.ok || !flashcardsRes.ok || !quizRes.ok) {
+        throw new Error("Failed to generate study materials");
+      }
+      const summaryData = await summaryRes.json();
+      const flashcardsData = await flashcardsRes.json();
+      const quizData = await quizRes.json();
+
+      // 1. Process Summary
+      // extract arrays with fallback empty arrays to prevent .map() errors
+      const keyPoints = Array.isArray(summaryData?.keyPoints)
+        ? summaryData.keyPoints
+        : [];
+      const importantTerms = Array.isArray(summaryData?.importantTerms)
+        ? summaryData.importantTerms
+        : [];
+      const summaryText = summaryData?.summary || "No summary provided.";
+
+      // Format into Markdown
+      const markdownContent = `## Overview\n${summaryText}\n\n### Key Points\n${
+        keyPoints.length > 0
+          ? keyPoints.map((point: string) => `* ${point}`).join("\n")
+          : "None provided."
+      }\n\n### Important Terms\n${
+        importantTerms.length > 0
+          ? importantTerms.map((term: string) => `* **${term}**`).join("\n")
+          : "None provided."
+      }`;
+
+      // 2. Process Flashcards ({ question, answer } -> { front, back })
+      // Transform backend flashcards ({ question, answer }) into Zustand format ({ front, back })
+      const rawCards = Array.isArray(flashcardsData?.cards)
+        ? flashcardsData.cards
+        : []; // return empty array if undefined
+      const formattedCards = rawCards.map(
+        (card: { question: string; answer: string }) => ({
+          front: card.question,
+          back: card.answer,
+        }),
+      );
+      // 3. Process & Validate Quiz ({ question, options, correctAnswer } -> { question, options, answer })
+      const rawQuiz = Array.isArray(quizData?.quiz) ? quizData.quiz : []; // return empty array if undefined
+      const validatedQuiz = rawQuiz
+        .filter(
+          (q: {
+            question: string;
+            options: string[];
+            correctAnswer: string;
+            explanation: string;
+          }) =>
+            // Guard: Ensure valid question, at least 2 options, and valid correctAnswer
+            q?.question &&
+            Array.isArray(q?.options) &&
+            q.options.length >= 2 &&
+            q.options.includes(q.correctAnswer),
+        )
+        .map(
+          (q: {
+            question: string;
+            options: string[];
+            correctAnswer: string;
+          }) => ({
+            question: q.question,
+            options: q.options,
+            answer: q.correctAnswer, // Map to Zustand's answer field
+          }),
+        );
+      // Store generated materials in global Zustand state
+      setGeneratedMaterials(markdownContent, formattedCards, validatedQuiz);
+
+      const newSessionId = await saveSessionToDb();
+      if (newSessionId) {
+        // Route to the new dynamic URL
+        router.push(`/session/${newSessionId}`);
+      } else {
+        alert("Session generated, but failed to save to database.");
+      }
     } catch (error) {
       console.error(error);
-      alert("Something went wrong connecting to the AI. ");
+      alert("Something went wrong generating your study guide.");
     } finally {
       setIsGenerating(false);
     }
