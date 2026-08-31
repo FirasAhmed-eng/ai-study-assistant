@@ -36,54 +36,57 @@ export function ChatView() {
         ];
 
   const handleSend = async () => {
-  if (!input.trim()) return;
-  
-  const currentInput = input;
-  // Take a snapshot of the history BEFORE we add the optimistic UI messages
-  const chatHistory = [...messages]; 
-  
-  // Optimistically add user message
-  addMessage({ role: "user", content: currentInput });
-  setInput("");
-  setError(null);
-  
-  // Push an empty assistant message that we will stream text into
-  addMessage({ role: "assistant", content: "" });
+    if (!input.trim()) return;
 
-  try {
-    const response = await fetch("http://localhost:8000/api/ai/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        material: sourceText,
-        history: chatHistory, 
-        question: currentInput
-      }),
-    });
+    const currentInput = input;
+    // Take a snapshot of the history BEFORE we add the optimistic UI messages
+    const chatHistory = [...messages];
 
-    if (!response.ok) throw new Error("Failed to connect to the AI");
-    if (!response.body) throw new Error("No readable stream available");
+    // Optimistically add user message
+    addMessage({ role: "user", content: currentInput });
+    setInput("");
+    setError(null);
 
-    // Initialize the stream reader and text decoder
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder("utf-8");
+    // Push an empty assistant message that we will stream text into
+    addMessage({ role: "assistant", content: "" });
 
-    // Read the stream chunk by chunk
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      // Decode the raw bytes into a string
-      const chunk = decoder.decode(value, { stream: true });
-      
-      // Dispatch directly to Zustand
-      appendChunkToLastMessage(chunk);
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BASE_URL}api/ai/chat}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            material: sourceText,
+            history: chatHistory,
+            question: currentInput,
+          }),
+        },
+      );
+
+      if (!response.ok) throw new Error("Failed to connect to the AI");
+      if (!response.body) throw new Error("No readable stream available");
+
+      // Initialize the stream reader and text decoder
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      // Read the stream chunk by chunk
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // Decode the raw bytes into a string
+        const chunk = decoder.decode(value, { stream: true });
+
+        // Dispatch directly to Zustand
+        appendChunkToLastMessage(chunk);
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Failed to stream AI response. Please try again.");
     }
-  } catch (err) {
-    console.error(err);
-    setError("Failed to stream AI response. Please try again.");
-  }
-};
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {

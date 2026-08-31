@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Loader2, Sparkles, Wand2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useStudyStore } from "@/store/useStudyStore";
+import { fetchWithRetry } from "@/lib/api";
 export default function Create() {
   const saveSessionToDb = useStudyStore((state) => state.saveSessionToDb);
   const router = useRouter();
@@ -18,7 +19,8 @@ export default function Create() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   // Validations
-  const minChars = 100;
+  const MIN_CHARS = 100;
+  const MAX_CHARS = 10000;
   const charCount = content.length;
   // Regex to accurately count words even with extra spaces
   const wordCount = content
@@ -27,8 +29,8 @@ export default function Create() {
     .filter((word) => word.length > 0).length;
 
   // Frontend validation rule: Title can't be empty, text must be >= minChars
-  const isValid = title.trim().length > 0 && charCount >= minChars;
-
+  const isValid =
+    title.trim() !== "" && charCount >= MIN_CHARS && charCount <= MAX_CHARS;
   const handleGenerate = async () => {
     if (!isValid) return;
 
@@ -36,36 +38,34 @@ export default function Create() {
 
     // 1. Save the raw text to our global state
     setSessionText(title, content);
-    // Execute both AI generation requests concurrently
+
     try {
-      // const response = await fetch("http://localhost:8000/api/ai/summarize", {
-      //   method: "POST",
-      //   headers: { "Content-Type": "application/json" },
-      //   body: JSON.stringify({ text: content }),
-      // });
-      const [summaryRes, flashcardsRes, quizRes] = await Promise.all([
-        fetch("http://localhost:8000/api/ai/summarize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: content }),
-        }),
-        fetch("http://localhost:8000/api/ai/flashcards", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: content }),
-        }),
-        fetch("http://localhost:8000/api/ai/quiz", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: content }),
-        }),
+      const baseOptions = {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: content }),
+      };
+      // (2 retries, 20 second timeout per call)
+      const [summaryData, flashcardsData, quizData] = await Promise.all([
+        fetchWithRetry(
+          `${process.env.NEXT_PUBLIC_BASE_URL}api/ai/summarize`,
+          baseOptions,
+          2,
+          20000,
+        ),
+        fetchWithRetry(
+          `${process.env.NEXT_PUBLIC_BASE_URL}api/ai/flashcards`,
+          baseOptions,
+          2,
+          20000,
+        ),
+        fetchWithRetry(
+          `${process.env.NEXT_PUBLIC_BASE_URL}api/ai/quiz`,
+          baseOptions,
+          2,
+          20000,
+        ),
       ]);
-      if (!summaryRes.ok || !flashcardsRes.ok || !quizRes.ok) {
-        throw new Error("Failed to generate study materials");
-      }
-      const summaryData = await summaryRes.json();
-      const flashcardsData = await flashcardsRes.json();
-      const quizData = await quizRes.json();
 
       // 1. Process Summary
       // extract arrays with fallback empty arrays to prevent .map() errors
@@ -211,14 +211,15 @@ export default function Create() {
           <div className="flex justify-between text-xs text-muted-foreground">
             <span
               className={
-                charCount > 0 && charCount < minChars
+                charCount > 0 && charCount < MIN_CHARS
                   ? "text-destructive font-medium"
                   : ""
               }
             >
-              {charCount < minChars
-                ? `Need at least ${minChars - charCount} more characters`
-                : "Minimum length reached"}
+              {charCount} / {MAX_CHARS} characters. 
+              {charCount < MIN_CHARS
+                ? ` Need at least ${MIN_CHARS - charCount} more characters`
+                : ""}
             </span>
             <span>
               {wordCount} words | {charCount} chars

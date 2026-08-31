@@ -3,18 +3,25 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
-} from "@/components/ui/sidebar"
+  SidebarMenuButton,
+} from "@/components/ui/sidebar";
+import Link from "next/link";
 
 export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader />
       <SidebarContent>
-        <SidebarGroup />
-        <SidebarGroup />
+        <SidebarMenuButton render={<Link href="/dashboard" />} isActive>
+          Dashboard
+        </SidebarMenuButton>
+        <SidebarGroup>
+          <SidebarGroupLabel>Sessions</SidebarGroupLabel>
+        </SidebarGroup>
       </SidebarContent>
       <SidebarFooter />
     </Sidebar>
-  )
+  );
 }
